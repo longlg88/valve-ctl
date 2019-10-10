@@ -45,6 +45,14 @@ V2:
     v, version              valve 버전을 확인 합니다.
 
     V, valve                명시적으로 기존 valve-ctl 기능을 사용합니다. 생략할 수 있습니다.
+    
+    fetch                   프로젝트 배포에 필요한 파일을 세팅합니다.
+        -n, --name          배포할 드레프트를 명시합니다.
+        -g, --group         배포할 프로젝트의 서비스 그룹명을 명시합니다.
+        -s, --service       배포할 프로젝트의 서비스 명을 명시합니다.
+        -r, --repo          배포할 프로젝트의 git 레파지토리를 명시합니다.
+        -o, --overwrite     이미 배포에 필요한 파일이 세팅이 되어있더라도 다시 한 번 세팅합니다.
+        -l, --list          드레프트를 보여줍니다.
 
 V1: (아래 기능들은 현재 사용가능 합니다.)
     c, config               저장된 설정을 조회 합니다.
@@ -107,8 +115,8 @@ _version() {
     _command "helm version"
     helm version
 
-    _command "draft version"
-    draft version
+#    _command "draft version"
+#    draft version
 
     _command "valve version"
     _echo "${THIS_VERSION}"
