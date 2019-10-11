@@ -2,23 +2,14 @@
 
 CUR_DIR=${0%/*}
 CUR_NAME=${0##*/}
-THIS_VERSION="v2.0.2"
 
 ####### common functions
 source ${ROOT_PLUGINS_DIR}/common.sh
 
-##### 새 기능을 추가할때
-# 1. OPT 추가
-# 2. help message 추가
-# 3. run function 내 case 추가
-# 4. public function (api) 은 _ 로 시작, private function 은 __ 로 시작
 
+readonly SHORT_OPT=":hlon:g:s:r:"
+readonly LONG_OPT=":help,list,overwrite,name:group:service:repo:"
 
-# 1 point. OPT 추가
-readonly SHORT_OPT=":hln:g:s:r:"
-readonly LONG_OPT=":help,list,name:group:service:repo:"
-
-# 2 point. help message 추가
 _help() {
     cat <<EOF
 ================================================================================
@@ -27,7 +18,7 @@ Usage: valve ${CUR_NAME} {Params}
 Params:
     -h, --help                  Display detailed help.
 
-    -n, --name string           (requirement)   fetch draft name.
+    -n, --name string           (requirement)   fetch draft name. It must use this option. When it fails, help will popup and it will guide you.
         
     
     -g, --group string          (optional)      service group name.
@@ -41,6 +32,9 @@ Params:
         
     -l, --list                  listing draft module name.
 
+    -o, --overwrite             (optional)      overwrite drafts(charts, Dockerfile, draft.toml, Jenkinsfile). It makes back-up in '.valve-history' directory.
+                                                If you check previous drafts when using overwrite option, you should check '.valve-history' directory.
+
 Examples:
     [Mandatory]
     $ cd {PROJECT}
@@ -49,6 +43,7 @@ Examples:
     $ valve fetch -n java-mvn-tomcat
 
     $ valve fetch --list    
+
     [Optional]
     $ valve fetch --name java-mvn-tomcat --group sample --service tomcat
     $ valve fetch --name java-mvn-tomcat --group sample --service tomcat --repo {REPO URL}
@@ -63,7 +58,6 @@ _run() {
     eval set -- "${OPTIONS}"
     
     while [ $# -gt 0 ]; do
-# 3 point. case 추가
         case "$1" in
             -n|--name)
                 shift;
@@ -85,6 +79,9 @@ _run() {
                 _list
                 exit 0
                 ;;
+            -o|--overwrite)
+                PARAM_OVERWRITE=1
+                ;;
             -h|--help)
                 _help
                 exit 0
@@ -102,15 +99,11 @@ _run() {
 }
 
 ##################################################################################
-# 4 point. function 추가
 _fetch(){
     _result "draft package version: ${THIS_VERSION}"
 
     DIST=/tmp/${THIS_NAME}-draft-${THIS_VERSION}
     LIST=/tmp/${THIS_NAME}-draft-ls
-
-    __pkg_version_check
-    __pkg_name_check
 
     NAMESPACE="${NAMESPACE:-development}"
 
@@ -118,10 +111,10 @@ _fetch(){
     SERVICE_NAME=$PARAM_SERVICE
     REPOSITORY_URL=$PARAM_REPO
 
-    _result 'SERVICE_GROUP : '$SERVICE_GROUP
-    _result 'SERVICE_NAME : '$SERVICE_NAME
-    _result 'REPOSITORY_URL : '$REPOSITORY_URL
-    _result 'PAKCAGE : '$PACKAGE
+    __validate
+
+    __pkg_version_check
+    __pkg_name_check
 
     __pkg_variable_gen
 
@@ -130,61 +123,33 @@ _fetch(){
     
     __pkg_gen
     __chart_gen
-    
-    echo '#### All done ####'
-    _result 'SERVICE_GROUP : '$SERVICE_GROUP
-    _result 'SERVICE_NAME : '$SERVICE_NAME
-    _result 'REPOSITORY_URL : '$REPOSITORY_URL   
-    _result 'PAKCAGE : '$PACKAGE
 
-    
     _config_save
-:<<'END'
-    # default
-    # if [ -f Jenkinsfile ]; then
-    #     if [ "${NAME}" == "" ]; then
-    #         SERVICE_GROUP=$(cat Jenkinsfile | grep "def SERVICE_GROUP = " | cut -d'"' -f2)
-    #         SERVICE_NAME=$(cat Jenkinsfile | grep "def SERVICE_NAME = " | cut -d'"' -f2)
-    #         if [ "${SERVICE_GROUP}" != "" ] && [ "${SERVICE_NAME}" != "" ]; then
-    #             NAME="${SERVICE_GROUP}-${SERVICE_NAME}"
-    #         fi
-    #     fi
-    #     if [ "${REPOSITORY_URL}" == "" ]; then
-    #         REPOSITORY_URL=$(cat Jenkinsfile | grep "def REPOSITORY_URL = " | cut -d'"' -f2)
-    #     fi
-    #     if [ "${REPOSITORY_SECRET}" == "" ]; then
-    #         REPOSITORY_SECRET=$(cat Jenkinsfile | grep "def REPOSITORY_SECRET = " | cut -d'"' -f2)
-    #     fi
-    #     if [ "${SLACK_TOKEN_DEV}" == "" ]; then
-    #         SLACK_TOKEN_DEV=$(cat Jenkinsfile | grep "def SLACK_TOKEN_DEV = " | cut -d'"' -f2)
-    #     fi
-    #     if [ "${SLACK_TOKEN_DQA}" == "" ]; then
-    #         SLACK_TOKEN_DQA=$(cat Jenkinsfile | grep "def SLACK_TOKEN_DQA = " | cut -d'"' -f2)
-    #     fi
-    # fi
-
-    
-    if [ -f Jenkinsfile ]; then
-        # Jenkinsfile SERVICE_GROUP
-        _result ${SERVICE_GROUP}
-        _chart_replace "Jenkinsfile" "def SERVICE_GROUP" "${SERVICE_GROUP}" true
-        SERVICE_GROUP="${REPLACE_VAL}"
-
-        # Jenkinsfile SERVICE_NAME
-        _chart_replace "Jenkinsfile" "def SERVICE_NAME" "${SERVICE_NAME}" true
-        SERVICE_NAME="${REPLACE_VAL}"
-
-        if [ "${SERVICE_GROUP}" != "" ] && [ "${SERVICE_NAME}" != "" ]; then
-            NAME="${SERVICE_GROUP}-${SERVICE_NAME}"
-        fi
-    fi
-END
+    _success 'valve fetch success'
 }
 
 
 ############# Start Private function #############
+__validate() {      # validate overwrite option
+    if (( PARAM_OVERWRITE == 1 )); then
+        if [ -f Jenkinsfile ]; then
+            if [ ! -d .valve-history ]; then
+                mkdir -p .valve-history
+            fi
+            cp -r charts/ .valve-history/
+            cp -r Dockerfile .valve-history
+            cp -r draft.toml .valve-history
+            cp -r Jenkinsfile .valve-history
+            rm -rf charts/ Dockerfile draft.toml Jenkinsfile
+        fi
+    else
+        if [ -f Jenkinsfile ]; then
+            _error "Warning!!\nThere is existing chart & Dockerfile & Jenkinsfile. If you want to replace all to new one, Use --overwrite or -o option.\nOverwrite option will copy backup in .valve_history directory."
+        fi
+    fi
+}
 __pkg_version_check() {
-    if [ "${THIS_VERSION}" == "v0.0.0" ]; then
+    if [ "${THIS_VERSION}" == "v0.0.0" ]; then      # Use local draft
         if [ ! -d ${SHELL_DIR}/draft ]; then
             _error
         fi
@@ -192,13 +157,13 @@ __pkg_version_check() {
         rm -rf ${DIST}
         mkdir -p ${DIST}
 
-        # copy local package
-        _command "cp -rf ${SHELL_DIR}/draft/* ${DIST}"
+        
+        _command "cp -rf ${SHELL_DIR}/draft/* ${DIST}"  # copy local draft
         cp -rf ${SHELL_DIR}/draft/* ${DIST}
 
         _result "local package used."
-    else
-        if [ ! -d ${DIST} ]; then
+    else        # Use release version
+        if [ ! -d ${DIST} ]; then   
             echo
             mkdir -p ${DIST}
 
@@ -213,8 +178,7 @@ __pkg_version_check() {
 }
 
 __pkg_name_check() {
-    # create LIST
-    ls ${DIST} | sort > ${LIST}
+    ls ${DIST} | sort > ${LIST}     # create LIST
     IDX=0
     CNT=`wc -l < ${LIST}`
     while read VAL; do
@@ -223,59 +187,56 @@ __pkg_name_check() {
         fi
     done < ${LIST}
 
-    if [ $IDX == $CNT ]; then
+    if [ $IDX == $CNT ]; then       # Check name if doesn't match.
         _result "Draft package: "${PARAM_NAME}
         rm -rf ${DIST}
         _error "Use valve fetch --list / valve fetch -l \n\e[4m${PARAM_NAME}\e[0m draft package doesn't matching anything"
-    else
+    else        # Check name
         PACKAGE=${PARAM_NAME}
     fi
 }
 
 __pkg_variable_gen() {
-    if [ -f Jenkinsfile ]; then     # Jenkinsfile exists
-        _result
-    else                            # Jenkinsfile not exists
-        if [ "${NAME}" == "" ]; then
-            NAME=$(echo $(basename $(pwd)) | sed 's/\./-/g')
-            if [ "${SERVICE_GROUP}" == "" ]; then
-                SERVICE_GROUP=$(echo $NAME | cut -d- -f1)
-            fi
-            if [ "${SERVICE_NAME}" == "" ]; then
-                SERVICE_NAME=$(echo $NAME | cut -d- -f2)
-            fi
-        fi
-        if [ "${REPOSITORY_URL}" == "" ]; then
-            if [ -d .git ]; then
-                REPOSITORY_URL=$(git config --get remote.origin.url | head -1 | xargs)
-            fi
+    if [ "${SERVICE_GROUP}" != "" ] && [ "${SERVICE_NAME}" != "" ]; then
+        NAME="${SERVICE_GROUP}-${SERVICE_NAME}"
+    fi
+
+    if [ "${NAME}" == "" ]; then
+        NAME=$(echo $(basename $(pwd)) | sed 's/\./-/g')
+        if [ "${SERVICE_GROUP}" == "" ]; then
+            SERVICE_GROUP=$(echo $NAME | cut -d- -f1)
         fi
 
-        _result "Jenkinsfile not exists"
+        if [ "${SERVICE_NAME}" == "" ]; then
+            SERVICE_NAME=$(echo $NAME | cut -d- -f2)
+        fi
+    fi
+    
+    if [ "${REPOSITORY_URL}" == "" ]; then
+        if [ -d .git ]; then
+            REPOSITORY_URL=$(git config --get remote.origin.url | head -1 | xargs)
+        fi
     fi
 }
 
 __pkg_gen() {
-    _chart_replace "Jenkinsfile" "def SERVICE_GROUP" "${SERVICE_GROUP}" true
+    _chart_replace "Jenkinsfile" "def SERVICE_GROUP" "${SERVICE_GROUP}" true    # Replace Jenkinsfile SERVICE_GROUP
     SERVICE_GROUP="${REPLACE_VAL}"
 
-    # Jenkinsfile SERVICE_NAME
-    _chart_replace "Jenkinsfile" "def SERVICE_NAME" "${SERVICE_NAME}" true
+    _chart_replace "Jenkinsfile" "def SERVICE_NAME" "${SERVICE_NAME}" true  # Replace Jenkinsfile SERVICE_NAME
     SERVICE_NAME="${REPLACE_VAL}"
 
     if [ "${SERVICE_GROUP}" != "" ] && [ "${SERVICE_NAME}" != "" ]; then
         NAME="${SERVICE_GROUP}-${SERVICE_NAME}"
     fi
     
-    if [ -f draft.toml ] && [ ! -z ${NAME} ]; then
-        # draft.toml NAME
+    if [ -f draft.toml ] && [ ! -z ${NAME} ]; then  # Replace draft.toml NAME
         _replace "s|NAMESPACE|${NAMESPACE}|" draft.toml
         _replace "s|NAME|${NAME}-${NAMESPACE}|" draft.toml
     fi
 }
 
-__pkg_copy() {
-    # copy
+__pkg_copy() {  # copy drafts
     if [ -f ${DIST}/${PACKAGE}/dockerignore ] && [ ! -f .dockerignore ]; then
         cp -rf ${DIST}/${PACKAGE}/dockerignore .dockerignore
     fi
@@ -296,8 +257,7 @@ __pkg_copy() {
     fi
 }
 
-__chart_copy() {
-    # cp charts/acme/ to charts/${NAME}/
+__chart_copy() {    # cp charts/acme/ to charts/${NAME}/
     if [ -d ${DIST}/${PACKAGE}/charts ]; then
         mkdir -p charts/${NAME}
         cp -rf ${DIST}/${PACKAGE}/charts/acme/* charts/${NAME}/
@@ -326,31 +286,9 @@ __chart_gen() {
         _replace "s|subdomain: .*|subdomain: ${NAME}|" charts/${NAME}/values.yaml
         _replace "s|- acme|- ${NAME}|" charts/${NAME}/values.yaml
     fi
-
-    if [ -f Jenkinsfile ]; then
-        if [ "${REPOSITORY_URL}" != "" ]; then
-            _chart_replace "Jenkinsfile" "def REPOSITORY_URL" "${REPOSITORY_URL}" true
-        fi
-        if [ "${REPOSITORY_SECRET}" != "" ]; then
-            _chart_replace "Jenkinsfile" "def REPOSITORY_SECRET" "${REPOSITORY_SECRET}"
-        fi
-        if [ "${SLACK_TOKEN_DEV}" != "" ]; then
-            _chart_replace "Jenkinsfile" "def SLACK_TOKEN_DEV" "${SLACK_TOKEN_DEV}"
-        fi
-        if [ "${SLACK_TOKEN_DQA}" != "" ]; then
-            _chart_replace "Jenkinsfile" "def SLACK_TOKEN_DQA" "${SLACK_TOKEN_DQA}"
-        fi
-    fi
 }
 ############# End Private function #############
 
-
-_overwrite() {
-    # clear
-    if [ ! -z ${DELETE} ]; then
-        rm -rf charts
-    fi
-}
 _chart_replace() {
     REPLACE_FILE=$1
     REPLACE_KEY=$2

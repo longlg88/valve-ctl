@@ -119,3 +119,7 @@ _config_save() {
     echo "CHARTMUSEUM=${CHARTMUSEUM:-chartmuseum-devops.coruscant.opsnow.com}" >> ${CONFIG}
     echo "USERNAME=${USERNAME}" >> ${CONFIG}
 }
+
+_debug_mode() {
+    echo -e "\e[1;33m+++++++++++++ ${FUNCNAME[1]}\e[0m"
+}
